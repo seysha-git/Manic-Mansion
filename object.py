@@ -2,10 +2,11 @@ from settings import *
 import pygame as pg
 import random as rd
 
-class Board:
-    def __init__(self, width, height):
+class Game:
+    def __init__(self, width, height, screen):
         self.width = width
         self.height = height 
+        self.screen = screen
 
         self.objects = []
         self.saved_sheeps = []
@@ -15,16 +16,35 @@ class Board:
 
         self.ghosts_count = 1
         self.obstacles_count = 3
+        self.saved_sheeps_count = 0
+        self.dangered_sheep_count = 3
 
-        self.screen = pg.display.set_mode((self.width, self.height))
+        self.run = True
+
+    def init(self):
+        self.fonts = pg.font.get_fonts()
+        self.system_font = pg.font.SysFont("arial", 40)
+
+        self.system_font = self.system_font.render("Bring the sheeps home", True, "blue", "Silver")
+        self.system_font_rect = self.system_font.get_rect()
+        self.system_font_rect.center = (WINDOW_WIDTH/2, 40)
+
+        self.bg = pg.image.load("images/22033.jpg")
+
+        self.player = Human(WINDOW_WIDTH // 8, WINDOW_HEIGHT // 2)
+        self.addObjects(self.player)
+
+        
     def draw(self):
-        self.screen.fill("dark blue")
-        pg.draw.rect(self.screen, "grey", (0, 0, ZONES_WIDTH, WINDOW_HEIGHT))
-        pg.draw.rect(self.screen, "silver", (WINDOW_WIDTH - ZONES_WIDTH, 0, ZONES_WIDTH, WINDOW_HEIGHT))
+        self.screen.blit(self.bg, (0, 0))
+        pg.draw.rect(self.screen, "dark blue", (0, 0, ZONES_WIDTH, WINDOW_HEIGHT))
+        pg.draw.rect(self.screen, "light blue", (WINDOW_WIDTH - ZONES_WIDTH, 0, ZONES_WIDTH, WINDOW_HEIGHT))
+        self.screen.blit(self.system_font, self.system_font_rect)
         for object in self.objects:
             object.draw(self.screen)
+
     def update(self, dt=1):
-        while len(self.dangered_sheeps) < SHEEPS:
+        while len(self.dangered_sheeps) < self.dangered_sheep_count:
             collide = True
             while collide:
                 x = rd.randint(WINDOW_WIDTH-ZONES_WIDTH, WINDOW_WIDTH - SHEEP_SIZE)
@@ -38,6 +58,21 @@ class Board:
                         collide = True
             self.addObjects(sheep)
             self.dangered_sheeps.append(sheep)
+
+        while len(self.saved_sheeps) < self.saved_sheeps_count:
+            collide = True
+            while collide:
+                x = rd.randint(0, ZONES_WIDTH - GHOST_SIZE)
+                #x = rd.randint(WINDOW_WIDTH-ZONES_WIDTH, WINDOW_WIDTH - 150)
+                y = rd.randint(0, WINDOW_HEIGHT - GHOST_SIZE)
+                #y = rd.randint(0, 80)
+                new_sheep = Sheep(x, y)
+                collide = False
+                for s in self.saved_sheeps:
+                    if(new_sheep.rect.colliderect(s.rect)):
+                        collide = True
+            self.addObjects(new_sheep)
+            self.saved_sheeps.append(new_sheep)
         
         while len(self.ghosts) < self.ghosts_count:
             collide = True
@@ -54,6 +89,7 @@ class Board:
             self.addObjects(new_ghost)
             self.ghosts.append(new_ghost)
         
+        #automatic spawn obstacles
         while len(self.obstacles) < self.obstacles_count:
             collide = True
             while collide:
@@ -69,7 +105,43 @@ class Board:
             self.addObjects(new_obst)
             self.obstacles.append(new_obst)
         
+        #player and obstacle collision
+        for obst in self.obstacles:
+            collide = pg.Rect.colliderect(self.player.rect, obst.rect)
+            overlap_x = min(self.player.rect.right, obst.rect.right) - max(self.player.rect.left, obst.rect.left)
+            overlap_y = min(self.player.rect.bottom, obst.rect.bottom) - max(self.player.rect.top, obst.rect.top)
+            if collide:
+                if(overlap_x < overlap_y): #horisontal collision
+                    if(self.player.rect.center[0] < obst.rect.center[0]):
+                        self.player.place_x(obst.rect.left-self.player.rect.width)
+                    if(self.player.rect.center[0] > obst.rect.center[0]):
+                        self.player.rect.left = obst.rect.right
+                        self.player.place_x(obst.rect.right)
+                elif(overlap_y < overlap_x):
+                     if(self.player.rect.center[1] < obst.rect.center[1]):
+                        self.player.place_y(obst.rect.top - self.player.rect.height)
+                     if(self.player.rect.center[1] > obst.rect.center[1]):
+                         self.player.place_y(obst.rect.bottom)
+                        
+        for sheep in self.dangered_sheeps:
+            if(pg.Rect.colliderect(self.player.rect, sheep.rect)):
+                self.dangered_sheeps.remove(sheep)
+                self.removeObjects(sheep)
+                self.player.toggleSheep()
+                self.saved_sheeps_count += 1
+                self.dangered_sheep_count -= 1
+                #self.removeObjects(sheep)
         
+        if self.player.carrysheep and self.player.rect.left < ZONES_WIDTH:
+            self.player.toggleSheep()
+            self.dangered_sheep_count += 1
+            self.ghosts_count += 1
+            self.obstacles_count += 1
+        
+        for ghost in self.ghosts:
+            if pg.Rect.colliderect(self.player.rect, ghost.rect):
+                self.run = False
+
         for object in self.objects:
             object.update(dt)
     def addObjects(self, object):
@@ -84,16 +156,13 @@ class gameObject(pg.sprite.Sprite):
         self.width = 0
         self.height = 0
         self.color = " "
-        self.type = " "
         self.rect = pg.Rect(self.pos.x, self.pos.y, self.width, self.height)
-    def place(self, x, y):
-        self.x = x
-        self.y = y
+    def place_x(self, x):
+        self.pos.x = x
+    def place_y(self, y):
+        self.pos.y = y
     def draw(self, screen):
         pg.draw.rect(screen, self.color, self.rect)
-    def move(self, x, y):
-        pass
-
 
 class Human(gameObject):
     def __init__(self, x, y):
@@ -104,11 +173,9 @@ class Human(gameObject):
         self.height = HUMAN_SIZE
         self.points = 0
         self.color = HUMAN_COLOR
-        self.carrySheep = False
+        self.carrysheep = False
         self.rect = pg.Rect(self.pos.x, self.pos.y, self.width, self.height)
 
-    def move(self):
-        pass
     def update(self, dt=1):
         keys = pg.key.get_pressed()
         if keys[pg.K_w] and self.rect.y > 0:
@@ -121,15 +188,15 @@ class Human(gameObject):
             self.pos.x += self.vx*dt
         
         self.rect.topleft = self.pos
-        
-    def decrease_speed(self):
-        pass
-    def increasePoint(self):
-        pass
-    def carrySheep(self):
-        pass
-    def checkColission():
-        pass
+    def toggleSheep(self):
+        if(self.carrysheep == False):
+            self.carrysheep = True
+            self.vx = HUMAN_VEL_X*0.5
+            self.vy = HUMAN_VEL_Y*0.5
+        else:
+            self.carrysheep = False
+            self.vx = HUMAN_VEL_X
+            self.vy = HUMAN_VEL_Y
 
 class Ghost(gameObject):
     def __init__(self, x, y):
